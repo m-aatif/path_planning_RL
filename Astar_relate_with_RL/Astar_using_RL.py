@@ -16,20 +16,20 @@ global show_animation
 show_animation = False
 
 
-# The `AStarPlanner` class is initialized with start and goal positions, obstacle information,
+# The `AStarPlanner` class is initialized with initial_state and terminal_state positions, obstacle information,
 # resolution, and end point for A* path planning in a grid map.
 class AStarPlanner:
 
-    def __init__(self, start, goal, obstacleList_rect, randArea):
+    def __init__(self, initial_state, terminal_state, obstacleList_rect, randArea):
         """
-        This function initializes a grid map for A* path planning with specified start, goal, obstacles,
+        This function initializes a grid map for A* path planning with specified initial_state, terminal_state, obstacles,
         resolution, and end point.
 
-        :param start: The `start` parameter represents the starting position for path planning. It could be
+        :param initial_state: The `initial_state` parameter represents the starting position for path planning. It could be
         a tuple containing the x and y coordinates of the starting point in the grid map
-        :param goal: The `goal` parameter in the `__init__` function represents the goal position in the
+        :param terminal_state: The `terminal_state` parameter in the `__init__` function represents the terminal_state position in the
         grid map for A* path planning. It is the destination point that the algorithm will try to reach from
-        the start position
+        the initial_state position
         :param obstacleList_rect: The `obstacleList_rect` parameter is a list of rectangles representing
         obstacles in the grid map. Each rectangle is defined by its coordinates in the form of (x, y, width,
         height), where (x, y) is the bottom-left corner of the rectangle, and width and height represent
@@ -41,7 +41,7 @@ class AStarPlanner:
         detail in the map representation and affects the accuracy of the path planning algorithm. A smaller
         resolution value results in a finer grid
         :param end_point: The `end_point` parameter in the `__init__` function is used to specify the end
-        point or destination for the A* path planning algorithm. This point represents the goal that the
+        point or destination for the A* path planning algorithm. This point represents the terminal_state that the
         algorithm will try to reach from the starting point
         """
 
@@ -53,8 +53,8 @@ class AStarPlanner:
         rr: robot radius[m]
         """
 
-        self.start = start
-        self.goal = goal
+        self.initial_state = initial_state
+        self.terminal_state = terminal_state
         x_min, x_max, y_min, y_max = randArea
 
         # Calculate side lengths
@@ -78,14 +78,14 @@ class AStarPlanner:
         self.obstacleList_rect = obstacleList_rect
 
         # self.calc_obstacle_map(obstacle_x, obstacle_y)
-        self.motion = self.get_motion_model() * resolution
+        self.motion = self.get_action_space() * resolution
 
-    # The Node class represents a node in a grid with attributes for position, cost, and parent index.
-    class Node:
-        def __init__(self, x, y, cost, parent_index):
+    # The State class represents a State in a grid with attributes for position, cumulative_reward, and parent index.
+    class State:
+        def __init__(self, x, y, cumulative_reward, parent_index):
             self.x = x  # index of grid
             self.y = y  # index of grid
-            self.cost = cost
+            self.cumulative_reward = cumulative_reward
             self.parent_index = parent_index
 
         def __str__(self):
@@ -94,15 +94,15 @@ class AStarPlanner:
                 + ","
                 + str(self.y)
                 + ","
-                + str(self.cost)
+                + str(self.cumulative_reward)
                 + ","
                 + str(self.parent_index)
             )
 
     def planning(self):
         """
-        The `planning` function implements the A* path search algorithm to find a path from a start
-        position to a goal position while avoiding obstacles, and returns the final path and a pruned
+        The `planning` function implements the A* path search algorithm to find a path from a initial_state
+        position to a terminal_state position while avoiding obstacles, and returns the final path and a pruned
         version of the path.
         :return: The `planning` method returns a list containing two elements: the original path `path`
         and the pruned path `p_path`.
@@ -110,47 +110,47 @@ class AStarPlanner:
         """
         A star path search
         input:
-            s_x: start x position [m]
-            s_y: start y position [m]
-            gx: goal x position [m]
-            gy: goal y position [m]
+            s_x: initial_state x position [m]
+            s_y: initial_state y position [m]
+            gx: terminal_state x position [m]
+            gy: terminal_state y position [m]
         output:
             rx: x position list of the final path
             ry: y position list of the final path
         """
 
-        start_node = self.Node(self.start[0], self.start[1], 0.0, -1)
-        goal_node = self.Node(self.goal[0], self.goal[1], 0.0, -1)
+        start_node = self.State(self.initial_state[0], self.initial_state[1], 0.0, -1)
+        goal_node = self.State(self.terminal_state[0], self.terminal_state[1], 0.0, -1)
 
-        open_set, closed_set = dict(), dict()
-        open_set[self.calc_grid_index(start_node)] = start_node
+        frontier_set, explored_set = dict(), dict()
+        frontier_set[self.discretize_state(start_node)] = start_node
         path = []
         if self.is_collision_not_detected_rect(
             start_node, goal_node, self.obstacleList_rect
         ):
-            path.append(self.goal)
-            path.append(self.start)
+            path.append(self.terminal_state)
+            path.append(self.initial_state)
 
             return [path, path]
 
         while 1:
 
-            if len(open_set) == 0:
+            if len(frontier_set) == 0:
                 # print("Open set is empty..")
                 break
 
             c_id = min(
-                open_set,
-                key=lambda o: open_set[o].cost
-                + self.calc_heuristic(goal_node, open_set[o]),
+                frontier_set,
+                key=lambda o: frontier_set[o].cumulative_reward
+                + self.estimate_value(goal_node, frontier_set[o]),
             )
-            current = open_set[c_id]
+            current = frontier_set[c_id]
             if self.is_collision_not_detected_rect(
                 goal_node, current, self.obstacleList_rect
             ):
                 goal_node.parent_index = c_id
-                goal_node.cost = current.cost + self.calc_heuristic(goal_node, current)
-                closed_set[c_id] = current
+                goal_node.cumulative_reward = current.cumulative_reward + self.estimate_value(goal_node, current)
+                explored_set[c_id] = current
                 break
 
             # show graph
@@ -176,9 +176,9 @@ class AStarPlanner:
                     "key_release_event",
                     lambda event: [exit(0) if event.key == "escape" else None],
                 )
-                # if len(closed_set.keys()) % 10 == 0:
+                # if len(explored_set.keys()) % 10 == 0:
                 #     plt.pause(0.001)
-            dist = self.calc_heuristic(goal_node, current)
+            dist = self.estimate_value(goal_node, current)
 
             if (
                 current.x == goal_node.x
@@ -187,66 +187,66 @@ class AStarPlanner:
             ):
 
                 goal_node.parent_index = current.parent_index
-                goal_node.cost = current.cost
+                goal_node.cumulative_reward = current.cumulative_reward
                 break
 
             # Remove the item from the open set
-            del open_set[c_id]
+            del frontier_set[c_id]
 
             # Add it to the closed set
-            closed_set[c_id] = current
+            explored_set[c_id] = current
 
             # expand_grid search grid based on motion model
             for i, _ in enumerate(self.motion):
-                node = self.Node(
+                State = self.State(
                     current.x + self.motion[i][0],
                     current.y + self.motion[i][1],
-                    current.cost + self.motion[i][2],
+                    current.cumulative_reward + self.motion[i][2],
                     c_id,
                 )
-                n_id = self.calc_grid_index(node)
+                n_id = self.discretize_state(State)
 
-                # If the node is not safe, do nothing
-                if not self.verify_node(node, current):
+                # If the State is not safe, do nothing
+                if not self.is_valid_state(State, current):
                     continue
 
-                if n_id in closed_set:
+                if n_id in explored_set:
                     continue
 
-                if n_id not in open_set:
-                    open_set[n_id] = node  # discovered a new node
+                if n_id not in frontier_set:
+                    frontier_set[n_id] = State  # discovered a new State
                 else:
-                    if open_set[n_id].cost > node.cost:
+                    if frontier_set[n_id].cumulative_reward > State.cumulative_reward:
                         # This path is the best until now. record it
-                        open_set[n_id] = node
+                        frontier_set[n_id] = State
 
-        path = self.calc_final_path(goal_node, closed_set)
+        path = self.calc_final_path(goal_node, explored_set)
         p_path = self.prune_path_modified(path, self.obstacleList_rect)
 
         return [path, p_path]
 
-    def calc_final_path(self, goal_node, closed_set):
+    def calc_final_path(self, goal_node, explored_set):
         """
-        The function `calc_final_path` generates the final path from the goal node by tracing back
+        The function `calc_final_path` generates the final path from the terminal_state State by tracing back
         through the closed set of nodes.
 
-        :param goal_node: The `goal_node` parameter in the `calc_final_path` method represents the node
-        that is the goal of the pathfinding algorithm. It is the destination node that the algorithm has
+        :param goal_node: The `goal_node` parameter in the `calc_final_path` method represents the State
+        that is the terminal_state of the pathfinding algorithm. It is the destination State that the algorithm has
         determined as the target to reach
-        :param closed_set: The `closed_set` parameter in the `calc_final_path` method is a set that
+        :param explored_set: The `explored_set` parameter in the `calc_final_path` method is a set that
         contains all the nodes that have been visited and evaluated during the search process. It is
         typically used in pathfinding algorithms like A* to keep track of the nodes that have already
         been explored
         :return: The function `calc_final_path` returns a list of coordinates representing the final path
-        from the starting node to the goal node. Each coordinate is a list containing the x and y
-        coordinates of a node in the path.
+        from the starting State to the terminal_state State. Each coordinate is a list containing the x and y
+        coordinates of a State in the path.
         """
         # generate final course
         path = []
         path.append([goal_node.x, goal_node.y])
         parent_index = goal_node.parent_index
         while parent_index != -1:
-            n = closed_set[parent_index]
+            n = explored_set[parent_index]
             path.append([n.x, n.y])
 
             parent_index = n.parent_index
@@ -254,17 +254,17 @@ class AStarPlanner:
         return path
 
     @staticmethod
-    def calc_heuristic(n1, n2):
+    def estimate_value(n1, n2):
         """
         The function calculates the heuristic distance between two points using the Euclidean distance
         formula.
 
-        :param n1: The `calc_heuristic` function you provided calculates the Euclidean distance between two
+        :param n1: The `estimate_value` function you provided calculates the Euclidean distance between two
         points `n1` and `n2` using the formula `d = w * math.hypot(n1.x - n2.x, n1.y - n2.y)`, where `w` is
         :param n2: It seems like you were about to provide some information about the parameter `n2` but the
         message got cut off. Could you please provide more details or let me know how I can assist you
         further?
-        :return: The function `calc_heuristic` returns the Euclidean distance between two points `n1` and
+        :return: The function `estimate_value` returns the Euclidean distance between two points `n1` and
         `n2` multiplied by the weight `w`.
         """
         w = 1.0  # weight of heuristic
@@ -309,47 +309,47 @@ class AStarPlanner:
         """
         return round((position - min_pos) / self.resolution)
 
-    def calc_grid_index(self, node):
+    def discretize_state(self, State):
         """
-        The function calculates the index of a node in a grid based on its x and y coordinates.
+        The function calculates the index of a State in a grid based on its x and y coordinates.
 
-        :param node: The `calc_grid_index` function takes a `node` object as a parameter. The function
-        calculates and returns the grid index of the node based on its x and y coordinates relative to
+        :param State: The `discretize_state` function takes a `State` object as a parameter. The function
+        calculates and returns the grid index of the State based on its x and y coordinates relative to
         the minimum x and y values stored in the object (`self.min_x` and `self.min_y`) and the
-        :return: The function `calc_grid_index` is returning the index of a node in a grid based on its x
+        :return: The function `discretize_state` is returning the index of a State in a grid based on its x
         and y coordinates relative to the minimum x and y values of the grid.
         """
-        return (node.y - self.min_y) * self.x_width + (node.x - self.min_x)
+        return (State.y - self.min_y) * self.x_width + (State.x - self.min_x)
 
-    def verify_node(self, node, current):
+    def is_valid_state(self, State, current):
         """
-        The function `verify_node` checks if a given node is within specified boundaries and does not
+        The function `is_valid_state` checks if a given State is within specified boundaries and does not
         collide with obstacles.
 
-        :param node: The `node` parameter represents a point in a 2D space with coordinates `x` and `y`. The
-        function `verify_node` is used to check if this node is within certain boundaries (`min_x`, `min_y`,
+        :param State: The `State` parameter represents a point in a 2D space with coordinates `x` and `y`. The
+        function `is_valid_state` is used to check if this State is within certain boundaries (`min_x`, `min_y`,
         `max_x`, `max_y`) and if it coll
         :param current: It seems like you were about to provide the definition or explanation of the
         `current` parameter but it got cut off. Could you please provide more information about the
-        `current` parameter so that I can assist you further with the `verify_node` function?
-        :return: The function `verify_node` returns a boolean value - `True` if the conditions for the node
+        `current` parameter so that I can assist you further with the `is_valid_state` function?
+        :return: The function `is_valid_state` returns a boolean value - `True` if the conditions for the State
         being verified are met, and `False` otherwise.
         """
 
-        if node.x < self.min_x:
+        if State.x < self.min_x:
             return False
-        elif node.y < self.min_y:
+        elif State.y < self.min_y:
             return False
-        elif node.x > self.max_x:
+        elif State.x > self.max_x:
             return False
-        elif node.y > self.max_y:
+        elif State.y > self.max_y:
             return False
 
         # collision check
         if not self.is_collision_not_detected_rect(
-            node, current, self.obstacleList_rect
+            State, current, self.obstacleList_rect
         ):
-            # if self.obmap[int(node.x)][int(node.y)]:
+            # if self.obmap[int(State.x)][int(State.y)]:
             return False
 
         return True
@@ -388,12 +388,12 @@ class AStarPlanner:
                         self.obstacle_map[ix][iy] = True
                         break
 
-    def is_collision_not_detected_rect(self, node, nearNode, obstacleList_rect):
+    def is_collision_not_detected_rect(self, State, nearNode, obstacleList_rect):
         colision = 0
 
         for rect in obstacleList_rect:
             for i in range(4):
-                p1 = Point(node.x, node.y)
+                p1 = Point(State.x, State.y)
                 q1 = Point(nearNode.x, nearNode.y)
                 p2_x = rect[i, 0]
                 p2_y = rect[i, 1]
@@ -448,16 +448,16 @@ class AStarPlanner:
         return pruned_path_modified
 
     @staticmethod
-    def get_motion_model():
+    def get_action_space():
         """
-        The `get_motion_model` function returns a motion model consisting of different motion directions and
+        The `get_action_space` function returns a motion model consisting of different motion directions and
         their associated costs.
-        :return: The `get_motion_model` function returns a NumPy array representing a motion model. Each row
-        in the array represents a motion with the format [dx, dy, cost], where dx and dy are the changes in
-        x and y coordinates respectively, and cost is the associated cost of that motion.
+        :return: The `get_action_space` function returns a NumPy array representing a motion model. Each row
+        in the array represents a motion with the format [dx, dy, cumulative_reward], where dx and dy are the changes in
+        x and y coordinates respectively, and cumulative_reward is the associated cumulative_reward of that motion.
         """
-        # dx, dy, cost
-        motion = np.array(
+        # dx, dy, cumulative_reward
+        action_space = np.array(
             [
                 [1, 0, 1],
                 [0, 1, 1],
@@ -470,7 +470,7 @@ class AStarPlanner:
             ]
         )
 
-        return motion
+        return action_space
 
 
 import time
@@ -515,15 +515,15 @@ if __name__ == "__main__":
 
         show_animation = True
 
-        print(__file__ + " start!!")
+        print(__file__ + " initial_state!!")
 
-        # start and goal position
+        # initial_state and terminal_state position
         sx = 100.0
         sy = 25.0
         gx = 35.0
         gy = 95.0
-        start = [sx, sy]
-        goal = [gx, gy]
+        initial_state = [sx, sy]
+        terminal_state = [gx, gy]
         grid_size = 3
         robot_radius = 1
 
@@ -557,7 +557,7 @@ if __name__ == "__main__":
         # Define resolution as 1% of minimum side
         resolution = min_side * 0.01
 
-        a_star = AStarPlanner(start, goal, M1, randArea)
+        a_star = AStarPlanner(initial_state, terminal_state, M1, randArea)
         path = a_star.planning()
         # path_pruned = a_star.prune_path_modified(path, M1)
 
