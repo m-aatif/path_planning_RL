@@ -1,4 +1,4 @@
-# A* to Reinforcement Learning Terminology Refactoring
+# A* to Reinforcement Learning
 
 This document details the variable renaming changes made to align the A* pathfinding implementation with Reinforcement Learning (RL) terminology while preserving the original algorithm's logic.
 
