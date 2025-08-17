@@ -100,6 +100,31 @@ This document details the variable renaming changes made to align the A* pathfin
 
 # A* vs RL Formula Comparison
 
+## Mapping Table
+
+<table border="1">
+  <tr>
+    <th><strong>A* Term</strong></th>
+    <th><strong>RL Term</strong></th>
+    <th><strong>Equivalent Role</strong></th>
+  </tr>
+  <tr>
+    <td><code>F(n)</code> (Total cost)</td>
+    <td><code>V(s)</code> (State value)</td>
+    <td>Combined current+future estimate</td>
+  </tr>
+  <tr>
+    <td><code>G(n)</code> (Path cost)</td>
+    <td><code>-R</code> (Negative reward)</td>
+    <td>Accumulated path metric</td>
+  </tr>
+  <tr>
+    <td><code>H(n)</code> (Heuristic)</td>
+    <td><code>γV(s')</code> (Future value)</td>
+    <td>Estimate of remaining path quality</td>
+  </tr>
+</table>
+
 ## Core Formulas
 
 <table border="1">
@@ -154,29 +179,5 @@ Where:
 - E[] = expected value over possible transitions
 </pre>
 
-## Mapping Table
-
-<table border="1">
-  <tr>
-    <th><strong>A* Term</strong></th>
-    <th><strong>RL Term</strong></th>
-    <th><strong>Equivalent Role</strong></th>
-  </tr>
-  <tr>
-    <td><code>F(n)</code> (Total cost)</td>
-    <td><code>V(s)</code> (State value)</td>
-    <td>Combined current+future estimate</td>
-  </tr>
-  <tr>
-    <td><code>G(n)</code> (Path cost)</td>
-    <td><code>-R</code> (Negative reward)</td>
-    <td>Accumulated path metric</td>
-  </tr>
-  <tr>
-    <td><code>H(n)</code> (Heuristic)</td>
-    <td><code>γV(s')</code> (Future value)</td>
-    <td>Estimate of remaining path quality</td>
-  </tr>
-</table>
 
 <p><em>Note: All changes so far maintain original algorithm logic - only terminology has been updated to reflect RL concepts.</em></p>
