@@ -97,4 +97,86 @@ This document details the variable renaming changes made to align the A* pathfin
   </tr>
 </table>
 
+
+# A* vs RL Formula Comparison
+
+## Core Formulas
+
+<table border="1">
+  <tr>
+    <th><strong>Component</strong></th>
+    <th><strong>A* Algorithm</strong></th>
+    <th><strong>Reinforcement Learning</strong></th>
+    <th><strong>Relationship</strong></th>
+  </tr>
+  <tr>
+    <td><strong>Total Cost/Value</strong></td>
+    <td><code>F(n) = G(n) + H(n)</code></td>
+    <td><code>V(s) = E[R + γV(s')]</code></td>
+    <td>Both estimate future path quality</td>
+  </tr>
+  <tr>
+    <td><strong>Path Cost (G)</strong></td>
+    <td><code>G(n)</code>: Accumulated cost from start to node <code>n</code></td>
+    <td><code>R</code>: Immediate reward after action</td>
+    <td><code>G(n) ≈ -R</code> (negative because A* minimizes cost while RL maximizes reward)</td>
+  </tr>
+  <tr>
+    <td><strong>Heuristic (H)</strong></td>
+    <td><code>H(n)</code>: Estimated cost from <code>n</code> to goal (e.g., Euclidean distance)</td>
+    <td><code>γV(s')</code>: Discounted future value</td>
+    <td><code>H(n) ≈ V(s')</code> (both estimate remaining path quality)</td>
+  </tr>
+  <tr>
+    <td><strong>Discount Factor</strong></td>
+    <td>Not explicitly used</td>
+    <td><code>γ</code>: Decays future rewards (0 ≤ γ ≤ 1)</td>
+    <td>A* implicitly uses γ=1 (no discounting)</td>
+  </tr>
+</table>
+
+## Key Differences in Calculation
+
+<h4>A* (Deterministic)</h4>
+<pre>
+F(n) = G(n) + H(n)
+Where:
+- G(n) = ∑ motion_cost (exact known costs)
+- H(n) = heuristic estimate (e.g., straight-line distance)
+</pre>
+
+<h4>RL (Stochastic)</h4>
+<pre>
+V(s) = E[R(s,a) + γ max V(s')]
+Where:
+- R(s,a) = immediate reward
+- γ = discount factor for future rewards
+- E[] = expected value over possible transitions
+</pre>
+
+## Mapping Table
+
+<table border="1">
+  <tr>
+    <th><strong>A* Term</strong></th>
+    <th><strong>RL Term</strong></th>
+    <th><strong>Equivalent Role</strong></th>
+  </tr>
+  <tr>
+    <td><code>F(n)</code> (Total cost)</td>
+    <td><code>V(s)</code> (State value)</td>
+    <td>Combined current+future estimate</td>
+  </tr>
+  <tr>
+    <td><code>G(n)</code> (Path cost)</td>
+    <td><code>-R</code> (Negative reward)</td>
+    <td>Accumulated path metric</td>
+  </tr>
+  <tr>
+    <td><code>H(n)</code> (Heuristic)</td>
+    <td><code>γV(s')</code> (Future value)</td>
+    <td>Estimate of remaining path quality</td>
+  </tr>
+</table>
+
 <p><em>Note: All changes so far maintain original algorithm logic - only terminology has been updated to reflect RL concepts.</em></p>
