@@ -12,8 +12,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from find_intersect_line import *
 
+# CHANGED HERE: Added for MC randomness, infinity in costs, and path storage.
+import random
+from math import inf
+import pickle
+
 global show_animation
 show_animation = False
+
+# CHANGED HERE:
+use_trained_path = True  # Set to False for first run (compute and save path). Set to True for subsequent runs (load and reuse path).
 
 
 # The `AStarPlanner` class is initialized with start and goal positions, obstacle information,
@@ -79,6 +87,130 @@ class AStarPlanner:
 
         # self.calc_obstacle_map(obstacle_x, obstacle_y)
         self.motion = self.get_motion_model() * resolution
+
+    # CHANGED HERE:
+    def monte_carlo_planning(self, current, goal, all_obstacles):
+        """
+        Pure Monte Carlo pathfinding: Run many random simulations (episodes) from current to goal, 
+        select the best collision-free path with min cost. No model, just trials.
+        """
+        # CHANGED HERE: New method for pure MC when switching due to new obstacle.
+        print(f"MC initialized at: {current}")  # Debug: Confirm start point
+        best_path = None
+        min_cost = inf
+        trials = 5000  # Increased from 1000 for better chance of finding path.
+        max_steps = 500  # Increased from 200 to allow longer paths.
+        goal_dist_threshold = self.resolution * 2  # Close enough to goal.
+        straight_line_cost = math.hypot(goal[0] - current[0], goal[1] - current[1])  # For early stopping threshold.
+        
+        for trial in range(trials):
+            path = [current[:]]  # Start with current position.
+            pos = current[:]
+            cost = 0.0
+            for step in range(max_steps):
+                # NEW: Bias angle towards goal for better exploration.
+                goal_angle = math.atan2(goal[1] - pos[1], goal[0] - pos[0])  # Direction to goal.
+                angle_noise = random.gauss(0, math.pi / 4)  # Gaussian noise, std dev 45 degrees.
+                angle = goal_angle + angle_noise  # Biased random direction.
+                
+                # NEW: Adaptive step size based on distance to goal.
+                dist_to_goal = math.hypot(goal[0] - pos[0], goal[1] - pos[1])
+                max_step = min(self.resolution * 10, dist_to_goal / 2)  # Cap at half remaining distance.
+                step = random.uniform(self.resolution, max_step)  # Larger when far, smaller when close.
+                
+                dx = step * math.cos(angle)
+                dy = step * math.sin(angle)
+                new_pos = [pos[0] + dx, pos[1] + dy]
+                
+                # Check if line from pos to new_pos is collision-free.
+                if self.is_collision_not_detected_rect(pos, new_pos, all_obstacles) and self.verify_node(self.Node(new_pos[0], new_pos[1], 0, -1), self.Node(pos[0], pos[1], 0, -1)):
+                    path.append(new_pos)
+                    cost += step
+                    pos = new_pos
+                    
+                    # If close to goal, check if better.
+                    if math.hypot(pos[0] - goal[0], pos[1] - goal[1]) < goal_dist_threshold:
+                        if cost < min_cost:
+                            min_cost = cost
+                            best_path = path
+                        # NEW: Early stopping if path is reasonably good (e.g., <1.5x straight-line).
+                        if cost < 1.5 * straight_line_cost:
+                            print(f"Early stopping: Good path found in trial {trial} with cost {cost}")
+                            # NEW: Prune the path before returning.
+                            if best_path and self.is_collision_not_detected_rect(best_path[-1], goal, all_obstacles):
+                                best_path.append(goal)
+                            pruned_best_path = self.prune_path_modified(best_path, all_obstacles)
+                            return (best_path, pruned_best_path)
+                            # return pruned_best_path if pruned_best_path else best_path    # for pruned path!
+                            # return best_path
+                        break  # End this trial.
+                else:
+                    break  # Invalid move, end trial.
+        
+        if best_path:
+            # NEW: Prune the final best path.
+            pruned_best_path = self.prune_path_modified(best_path, all_obstacles)
+            return (best_path, pruned_best_path)
+            # return pruned_best_path if pruned_best_path else best_path    # for pruned path!
+            # return best_path
+        else:
+            print("No path found with MC after all trials.")
+            return None  # Or fallback to another method, e.g., self.planning() with updated obstacles.
+    
+    # def monte_carlo_planning(self, current, goal, all_obstacles):
+    #     """
+    #     Pure Monte Carlo pathfinding: Run many random simulations (episodes) from current to goal, 
+    #     select the best collision-free path with min cost. No model, just trials.
+    #     """
+    #     # CHANGED HERE: New method for pure MC when switching due to new obstacle.
+    #     best_path = None
+    #     min_cost = inf
+    #     trials = 1000  # Adjust if too slow (number of episodes/trials).
+    #     max_steps = 200  # Max steps per trial to avoid infinite loops.
+    #     for _ in range(trials):
+    #         path = [current[:]]  # Start with current position.
+    #         pos = current[:]
+    #         cost = 0.0
+    #         for _ in range(max_steps):
+    #             # Random direction and step size (like random action in MC).
+    #             angle = random.uniform(0, 2 * math.pi)
+    #             step = random.uniform(self.resolution, self.resolution * 5)  # Small to medium steps.
+    #             dx = step * math.cos(angle)
+    #             dy = step * math.sin(angle)
+    #             new_pos = [pos[0] + dx, pos[1] + dy]
+    #             # Check if line from pos to new_pos is collision-free.
+    #             if self.is_collision_not_detected_rect(pos, new_pos, all_obstacles) and self.verify_node(self.Node(new_pos[0], new_pos[1], 0, -1), self.Node(pos[0], pos[1], 0, -1)):
+    #                 path.append(new_pos)
+    #                 cost += step
+    #                 pos = new_pos
+    #                 # If close to goal, check if better.
+    #                 if math.hypot(pos[0] - goal[0], pos[1] - goal[1]) < self.resolution * 2:
+    #                     if cost < min_cost:
+    #                         min_cost = cost
+    #                         best_path = path
+    #                     break  # End this trial.
+    #             else:
+    #                 break  # Invalid move, end trial.
+    #     return best_path
+    
+    # CHANGED HERE:
+    def is_collision_not_detected_rect(self, node, nearNode, obstacleList_rect):
+        # CHANGED HERE: Added flexibility for node as list [x,y] (for MC inputs).
+        p1 = Point(node.x, node.y) if hasattr(node, 'x') else Point(node[0], node[1])
+        q1 = Point(nearNode.x, nearNode.y) if hasattr(nearNode, 'x') else Point(nearNode[0], nearNode[1])
+        collision = 0
+        for rect in obstacleList_rect:
+            for i in range(4):
+                p2_x = rect[i, 0]
+                p2_y = rect[i, 1]
+                q2_x = rect[(i + 1) % 5, 0]  # Close the rectangle loop.
+                q2_y = rect[(i + 1) % 5, 1]
+                p2 = Point(p2_x, p2_y)
+                q2 = Point(q2_x, q2_y)
+                if doIntersect(p1, q1, p2, q2):
+                    collision += 1
+                    return False
+        return True  # Safe.
 
     # The Node class represents a node in a grid with attributes for position, cost, and parent index.
     class Node:
@@ -388,24 +520,41 @@ class AStarPlanner:
                         self.obstacle_map[ix][iy] = True
                         break
 
-    def is_collision_not_detected_rect(self, node, nearNode, obstacleList_rect):
-        colision = 0
+    # def is_collision_not_detected_rect(self, node, nearNode, obstacleList_rect):
+    #     collision = 0
 
+    #     for rect in obstacleList_rect:
+    #         for i in range(4):
+    #             p1 = Point(node.x, node.y)
+    #             q1 = Point(nearNode.x, nearNode.y)
+    #             p2_x = rect[i, 0]
+    #             p2_y = rect[i, 1]
+    #             q2_x = rect[i + 1, 0]
+    #             q2_y = rect[i + 1, 1]
+    #             p2 = Point(p2_x, p2_y)
+    #             q2 = Point(q2_x, q2_y)
+    #             if doIntersect(p1, q1, p2, q2):
+    #                 collision = collision + 1
+    #                 return False
+
+    #     return True  # safe
+    def is_collision_not_detected_rect(self, node, nearNode, obstacleList_rect):
+        # CHANGED HERE: Added flexibility for node as list [x,y] (for MC inputs).
+        p1 = Point(node.x, node.y) if hasattr(node, 'x') else Point(node[0], node[1])
+        q1 = Point(nearNode.x, nearNode.y) if hasattr(nearNode, 'x') else Point(nearNode[0], nearNode[1])
+        collision = 0
         for rect in obstacleList_rect:
             for i in range(4):
-                p1 = Point(node.x, node.y)
-                q1 = Point(nearNode.x, nearNode.y)
                 p2_x = rect[i, 0]
                 p2_y = rect[i, 1]
-                q2_x = rect[i + 1, 0]
-                q2_y = rect[i + 1, 1]
+                q2_x = rect[(i + 1) % 4, 0]  # Use modulo to close the rectangle loop correctly (changed from %5 to %4, as rectangles have 4 sides).
+                q2_y = rect[(i + 1) % 4, 1]
                 p2 = Point(p2_x, p2_y)
                 q2 = Point(q2_x, q2_y)
                 if doIntersect(p1, q1, p2, q2):
-                    colision = colision + 1
+                    collision += 1
                     return False
-
-        return True  # safe
+        return True  # Safe.
 
     def prune_path_modified(self, path, obstacleList_rect):
         """
@@ -505,84 +654,144 @@ def is_valid_point(point, obstacles):
             return False
     return True
 
+# CHANGED HERE
+def simulate_movement(a_star, path, obstacles, new_obstacles, goal):
+    """
+    Simulate movement along path, check for new obstacles, switch to MC if blocked.
+    """
+    # CHANGED HERE: New function to simulate "runtime" movement and dynamic avoidance.
+    pruned_path = path[1][::-1]  # Use pruned path, reverse to start -> goal.
+    current_pos = pruned_path[0]
+    final_path = [current_pos]
+    blocked = False
+    for i in range(1, len(pruned_path)):
+        next_pos = pruned_path[i]
+        if a_star.is_collision_not_detected_rect(current_pos, next_pos, new_obstacles):
+            final_path.append(next_pos)
+            current_pos = next_pos
+        else:
+            print(f"New obstacle detected at current_pos: {current_pos}! Switching to MC.")
+            blocked = True
+            all_obstacles = list(obstacles) + list(new_obstacles)
+            mc_path = a_star.monte_carlo_planning(current_pos, goal, all_obstacles)
+            
+            # Debug: Print MC start point to confirm
+            print(f"MC starting from: {current_pos}, goal: {goal}")
+            
+            if mc_path:
+                final_path += mc_path[1:]  # Append MC path (skips current to avoid duplication)
+                print("MC path found by avoiding new obstacle.")
+                break
+            else:
+                print("MC failed, falling back to A* from current")
+                a_star.start = current_pos  # Set A* start to current position
+                new_path = a_star.planning()  # Recompute A* from current
+                if new_path and new_path[1]:
+                    final_path += new_path[1][1:]  # Append pruned path from current
+                else:
+                    print("Fallback A* also failed from current position.")
+                a_star.start = [sx, sy]  # Reset to original start
+                break
 
+    if not blocked:
+        print("Using same path by avoiding obstacles.")
+    # Plot final path in magenta.
+    plt.plot([x for x,y in final_path], [y for x,y in final_path], "-+m", linewidth=0.5, label="Final Path (with avoidance)")
+    # Plot new obstacles in black.
+    for rect in new_obstacles:
+        plt.plot(rect[:, 0], rect[:, 1], "-k", linewidth=0.5, label="New Obstacle")
+    return final_path
+
+
+# UPDATED
 if __name__ == "__main__":
-
     try:
-        # accessing the list of name and values of obstacles
+        # Your existing code...
         name_obstacleList = list(obstacles_list.keys())
         obstacleList = list(obstacles_list.values())
-
-        show_animation = True
-
         print(__file__ + " start!!")
-
-        # start and goal position
         sx = 100.0
         sy = 25.0
         gx = 35.0
         gy = 95.0
         start = [sx, sy]
         goal = [gx, gy]
-        grid_size = 3
-        robot_radius = 1
-
-        # set obstable positions
-
-        obs_area = 0
-        total_area = 10000
-        # for rect in M1:
-        #     polygon = Polygon(rect)
-        #     obs_area=obs_area+polygon.area
-        #     print(polygon.area)
-        M1 = obstacleList[1]
-
-        print(obs_area * 100 / (total_area))
-
-        print(len(M4))
-        print(M4.size)
-        print(M4.shape[1])
-        start_time = time.time()
-
         randArea = [0, 100, 0, 100]
-        x_min, x_max, y_min, y_max = randArea
+        M1 = obstacleList[1]  # Your obstacle.
 
-        # Calculate side lengths
-        width = x_max - x_min
-        height = y_max - y_min
+        # CHANGED HERE: Load or compute path based on flag.
+        if use_trained_path:
+            with open('path-planning-using-DP-and-MC/path.pkl', 'rb') as f:
+                path = pickle.load(f)
+            print("Loaded trained A* path.")
+        else:
+            a_star = AStarPlanner(start, goal, M1, randArea)
+            path = a_star.planning()
+            with open('path-planning-using-DP-and-MC/path.pkl', 'wb') as f:
+                pickle.dump(path, f)
+            print("Computed and saved A* path.")
 
-        # Take minimum side length
-        min_side = min(width, height)
+        # CHANGED HERE: Add new obstacles here for third run (example below).
+        # new_obstacles = np.array([])  # Empty for first/second run.
 
-        # Define resolution as 1% of minimum side
-        resolution = min_side * 0.01
+        # For third run, uncomment and add your new obstacle, e.g.:
+        # new_obstacles = np.array([[[50, 40], [55, 40], [55, 50], [50, 50], [50, 40]]])  # New rect on path.
+        # new_obstacles = np.array([[[50, 70], [65, 70], [65, 80], [50, 80], [50, 70]]])  # New rect on path.
+        # new_obstacles = np.array([[[50, 70], [65, 70], [65, 100], [50, 100], [50, 70]]])  # New rect on path.
+        new_obstacles = np.array([[[80, 40], [90, 40], [90, 80], [80, 80], [80, 40]]])  # New rect on path.
 
-        a_star = AStarPlanner(start, goal, M1, randArea)
-        path = a_star.planning()
-        # path_pruned = a_star.prune_path_modified(path, M1)
+        # Simulate movement and handle avoidance.
+        a_star = AStarPlanner(start, goal, M1, randArea)  # Re-init for methods.
 
-        end_time = time.time()
-        print("\n  required time to calculate is :", end_time - start_time)
+        mc_result = a_star.monte_carlo_planning(start, goal, list(M1) + list(new_obstacles))
+        if mc_result:
+            mc_path, pruned_mc_path = mc_result
+            
+            # Plotting
+            plt.figure(figsize=(10, 10))
+            
+            # Plot obstacles
+            for rect in M1:
+                plt.plot(rect[:, 0], rect[:, 1], "-r", linewidth=0.5, label="Original Obstacles")
+            for rect in new_obstacles:
+                plt.plot(rect[:, 0], rect[:, 1], "-k", linewidth=0.5, label="New Obstacles")
+            
+            # Plot A* paths
+            plt.plot([x for (x, y) in path[0]], [y for (x, y) in path[0]], "-+g", 
+                    linewidth=0.5, label="A* Original Path")
+            plt.plot([x for (x, y) in path[1]], [y for (x, y) in path[1]], "-+b", 
+                    linewidth=0.5, label="A* Pruned Path")
+            
+            # Plot MC paths
+            if mc_path:
+                plt.plot([x for x,y in mc_path], [y for x,y in mc_path], "-+c", 
+                        linewidth=0.5, label="MC Original Path")
+            if pruned_mc_path:
+                plt.plot([x for x,y in pruned_mc_path], [y for x,y in pruned_mc_path], "-+m", 
+                        linewidth=1.5, label="MC Pruned Path")
+            
+            # Plot start and goal
+            plt.plot(sx, sy, "or", label="Start")
+            plt.plot(gx, gy, "og", label="Goal")
+            
+            plt.legend()
+            plt.grid(True)
+            plt.axis("equal")
+            plt.title("Path Planning: A* vs Monte Carlo")
+            plt.show()
+        else:
+            print("Monte Carlo planning failed to find a path")
 
-        for rect in M1:
+        # In __main__
+        # final_path = simulate_movement(a_star, path, M1, new_obstacles, goal)
+        # plt.plot([x for x, y in final_path], [y for x, y in final_path], "-+m", linewidth=0.5, label="Final Path (with avoidance)")
 
-            plt.plot(rect[:, 0], rect[:, 1], "-r", linewidth=0.5, label="Obstacles")
-            plt.plot(
-                [x for (x, y) in path[1]],
-                [y for (x, y) in path[1]],
-                "-+b",
-                linewidth=0.5,
-                label="WayPoints",
-            )
-            plt.plot(
-                [x for (x, y) in path[0]],
-                [y for (x, y) in path[0]],
-                "-+g",
-                linewidth=0.5,
-                label="WayPoints",
-            )
-
-        plt.show()
+        # # Your existing plotting (add to it).
+        # for rect in M1:
+        #     plt.plot(rect[:, 0], rect[:, 1], "-r", linewidth=0.5, label="Obstacles")
+        # plt.plot([x for (x, y) in path[1]], [y for (x, y) in path[1]], "-+b", linewidth=0.5, label="WayPoints")
+        # plt.plot([x for (x, y) in path[0]], [y for (x, y) in path[0]], "-+g", linewidth=0.5, label="WayPoints")
+        # plt.show()
 
     except KeyboardInterrupt:
         print("error")
